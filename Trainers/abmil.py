@@ -42,7 +42,7 @@ def draw_confusion_matrix(true_labels, predicted_labels, name):
     #plt.xlabel('Prediction')
     plt.tight_layout()
     plt.show()
-    plt.savefig('/home/omnisky/sde/NanTH/result/confusion_matrix/' + name + '.png')
+    plt.savefig('./result/confusion_matrix/' + name + '.png')
 
 
 
@@ -239,7 +239,7 @@ class MixABMIL(BaseTrainer):
 
             if score['acc'] > max_acc:
                 max_acc = score['acc']
-                model_name = '/home/omnisky/sdg/NanTH/zxw/saved_models_jinrun/' + str(epoch) + '_' + str(max_acc) + '.pth'
+                model_name = './saved_models_jinrun/' + str(epoch) + '_' + str(max_acc) + '.pth'
                 torch.save(self.model, model_name)
             torch.cuda.empty_cache()
 
@@ -334,118 +334,9 @@ class MixABMIL_annotation(BaseTrainer):
 
             if score['acc'] > max_acc:
                 max_acc = score['acc']
-                model_name = '/home/omnisky/sdg/NanTH/zxw/saved_models/' + str(epoch) + '_' + str(max_acc) + '.pth'
+                model_name = './saved_models/' + str(epoch) + '_' + str(max_acc) + '.pth'
                 torch.save(self.model, model_name)
             torch.cuda.empty_cache()
 
 
-class MixABMIL_Inf(BaseTrainer):
-    def __init__(self, model, criterion, metric_ftns, optimizer, train_loader, test_loader, bag_loader, cfgs):
-        super().__init__(model, criterion, metric_ftns, optimizer, cfgs)
-        self.train_loader = train_loader
-        self.test_loader = test_loader
-        self.bag_loader = bag_loader
 
-    def _inference_for_selection(self, loader, if_train):
-        self.model.eval()
-        results = [] 
-        with torch.no_grad():
-            for i, (feature, target, patch_labels, slide_id) in enumerate(loader):
-                input = feature.cuda()
-                output, _= self.model(input)
-                _ = torch.softmax(_, dim=1)
-                #results.append({'probs': patch_labels[0].detach().cpu().tolist(), 'slide_id': slide_id[0]})
-                results.append({'probs': _[:, 1].detach().cpu().tolist(), 'slide_id': slide_id[0], 'labels': patch_labels[0].detach().cpu().tolist()})
-        return results
-
-    def inference(self, loader):
-        self.model.eval()
-        results = []
-        with torch.no_grad():
-            for i, (feature, target, patch_labels, slide_id, patch_id) in enumerate(loader):
-                input = feature.cuda()
-                output, _= self.model(input)#torch.tensor([1.0 for x in input.size()[0]]).cuda())
-                prob = torch.softmax(_, dim=1)
-                results.append({'slide_id': slide_id[0], 'patch_id': patch_id, 'prob': prob[:, 1].cpu().numpy()})
-
-        return results
-
-    def train(self):
-        random.seed(10110)
-        self.model = torch.load("/home/omnisky/sdg/NanTH/zxw/saved_models/35_0.8571428571428571.pth")
-        self.test_loader.dataset.set_mode('bag')
-        results = self._inference_for_selection(self.test_loader, False)
-
-        for i in range(len(results)):
-            slide_path = os.path.join('/home/omnisky/sdg/NanTH/zxw/slide/Insitu', results[i]['slide_id'] + '.ndpi')
-            try:
-                h5_path = os.path.join('/home/omnisky/sdg/NanTH/zxw/cp/Insitu/patches', results[i]['slide_id'] + '.h5')
-                file = h5py.File(h5_path, "r")
-            except:
-                continue
-            
-            selected_points = file['coords'][:] / 16
-            slide = openslide.OpenSlide(slide_path)
-            image = np.array(slide.read_region((0, 0), 4, slide.level_dimensions[4]).convert('RGB'))
-            out_image = draw_colored_square(image, selected_points, results[i]['probs'], results[i]['labels'])
-            cv2.imwrite(os.path.join('/home/omnisky/sdg/NanTH/zxw/heatmaps/in', results[i]['slide_id'] + '.png'), out_image, [cv2.IMWRITE_PNG_COMPRESSION, 0])
-
-
-
-'''
-class MixABMIL_Inf(BaseTrainer):
-    def __init__(self, model, criterion, metric_ftns, optimizer, train_loader, test_loader, bag_loader, cfgs):
-        super().__init__(model, criterion, metric_ftns, optimizer, cfgs)
-        self.train_loader = train_loader
-        self.test_loader = test_loader
-        self.bag_loader = bag_loader
-
-    def _inference_for_selection(self, loader, if_train):
-        self.model.eval()
-        probs = []
-        with torch.no_grad():
-            for i, (feature, target, patch_labels, slide_id) in enumerate(loader):
-                input = feature.cuda()
-                output, _ = self.model(input)
-                probs.extend(_.detach().cpu().tolist())
-        probs = np.array(probs)
-        return probs
-
-    def inference(self, loader):
-        self.model.eval()
-        results = []
-        with torch.no_grad():
-            for i, (feature, target, patch_labels, slide_id, patch_id) in enumerate(loader):
-                input = feature.cuda()
-                output, _= self.model(input)#torch.tensor([1.0 for x in input.size()[0]]).cuda())
-                prob = torch.softmax(_, dim=1)
-                results.append({'slide_id': slide_id[0], 'patch_id': patch_id, 'prob': prob[:, 1].cpu().numpy()})
-
-        return results
-
-    def train(self):
-        self.model = torch.load("/home/omnisky/sdg/NanTH/zxw/saved_models/35_0.8571428571428571.pth")
-        self.test_loader.dataset.set_mode('bag')
-        pred = self._inference_for_selection(self.test_loader, False)
-        self.test_loader.dataset.top_k_select(pred, is_in_bag=True)
-        self.test_loader.dataset.set_mode('selected_bag')
-
-        results = self.inference(self.test_loader)
-        for i in range(len(results)):
-            slide_path = os.path.join('/home/omnisky/sdg/NanTH/zxw/slide/Microinvasive', results[i]['slide_id'] + '.ndpi')
-            try:
-                h5_path = os.path.join('/home/omnisky/sdg/NanTH/zxw/cp/Microinvasive/patches', results[i]['slide_id'] + '.h5')
-                file = h5py.File(h5_path, "r")
-            except:
-                continue
-            
-            coords = file['coords']
-            selected_points = []
-            for k in range(len(results[i]['patch_id'])):
-                selected_points.append(coords[results[i]['patch_id'][k]] / 16)
-            
-            slide = openslide.OpenSlide(slide_path)
-            image = np.array(slide.read_region((0, 0), 4, slide.level_dimensions[4]).convert('RGB'))
-            out_image = draw_colored_square(image, selected_points, results[i]['prob'])
-            cv2.imwrite(os.path.join('/home/omnisky/sdg/NanTH/zxw/heatmaps/mi', results[i]['slide_id'] + '.png'), out_image, [cv2.IMWRITE_PNG_COMPRESSION, 0])
-'''
